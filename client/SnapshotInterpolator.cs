@@ -43,18 +43,26 @@ public partial class SnapshotInterpolator : Node
             _interpolationFactor = (float)(renderDiff / timeDiffBetweenStates);
 
             var futureStates = _snapshotBuffer[NextFuture].States;
+            var nfs = _snapshotBuffer[NextFuture].States.Count();
+            var rps = _snapshotBuffer[RecentPast].States.Count();
 
             for (int i = 0; i < futureStates.Length; i++)
             {
+                 if (i > rps || i > nfs)
+                    return;
+
                 //TODO: check if the player is aviable in both states
                 NetMessage.UserState futureState = _snapshotBuffer[NextFuture].States[i];
                 NetMessage.UserState pastState = _snapshotBuffer[RecentPast].States[i];
 
-                var dummy = playersArray.GetNode<Node3D>(futureState.Id.ToString()); //FIXME: remove GetNode for the love of god
-
-                if (dummy.IsMultiplayerAuthority() == false)
+                if (playersArray.HasNode(futureState.Id.ToString()))
                 {
-                    dummy.Position = pastState.Position.Lerp(futureState.Position, _interpolationFactor);
+                    var dummy = playersArray.GetNode<Node3D>(futureState.Id.ToString()); //FIXME: remove GetNode for the love of god
+
+                    if (dummy.IsMultiplayerAuthority() == false)
+                    {
+                        dummy.Position = pastState.Position.Lerp(futureState.Position, _interpolationFactor);
+                    }
                 }
             }
         }

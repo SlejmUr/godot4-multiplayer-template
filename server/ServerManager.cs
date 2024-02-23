@@ -11,6 +11,7 @@ public partial class ServerManager : Node
 
 	private SceneMultiplayer _multiplayer = new();
 	private Godot.Collections.Array<Godot.Node> entityArray;
+	private Godot.Collections.Dictionary<int, Node> Entities;
 	private ServerClock _serverClock;
 
 	public override void _EnterTree()
@@ -18,6 +19,7 @@ public partial class ServerManager : Node
 		StartListening();
 		_serverClock = GetNode<ServerClock>("ServerClock");
 		_serverClock.NetworkProcessTick += NetworkProcess;
+		Entities = new();
 	}
 
 	public override void _Process(double delta)
@@ -25,13 +27,10 @@ public partial class ServerManager : Node
 		DisplayDebugInformation();
 	}
 
-	public override void _PhysicsProcess(double delta)
-	{
-		entityArray = GetNode("/root/Main/EntityArray").GetChildren(); // Remove this
-	}
-
 	private void NetworkProcess(double delta)
 	{
+		if (Entities.Count == 0)
+    		return;
 		BroadcastSnapshot();
 	}
 
@@ -41,13 +40,14 @@ public partial class ServerManager : Node
 		var snapshot = new NetMessage.GameSnapshot
 		{
 			Time = _serverClock.GetCurrentTick(),
-			States = new NetMessage.UserState[entityArray.Count]
+			States = new NetMessage.UserState[Entities.Count]
 		};
-
-		for (int i = 0; i < entityArray.Count; i++)
+		int state = 0;
+		foreach (var item in Entities)
 		{
-			var player = entityArray[i] as ServerPlayer; //player
-			snapshot.States[i] = player.GetCurrentState();
+			var player = item.Value as ServerPlayer;
+			snapshot.States[state] = player.GetCurrentState();
+			state++;
 		}
 
 		byte[] data = MessagePackSerializer.Serialize<NetMessage.ICommand>(snapshot);
@@ -62,8 +62,15 @@ public partial class ServerManager : Node
 		var command = MessagePackSerializer.Deserialize<NetMessage.ICommand>(data);
 		if (command is NetMessage.UserCommand userCommand)
 		{
-			ServerPlayer player = GetNode($"/root/Main/EntityArray/{userCommand.Id}") as ServerPlayer; //FIXME: do not use GetNode here
-			player.PushCommand(userCommand);
+			if (Entities.TryGetValue(userCommand.Id, out var node))
+			{
+				ServerPlayer player = node as ServerPlayer;
+				player.PushCommand(userCommand);
+			}
+			else
+			{
+				GD.Print("Couldnt get the node from entity!");
+			}
 		}
 
 	}
@@ -72,12 +79,14 @@ public partial class ServerManager : Node
 	{
 		Node playerInstance = GetNode<MultiplayerSpawner>("/root/Main/MultiplayerSpawner").Spawn(id);
 		GD.Print($"Peer {id} connected");
+		Entities.Add((int)id, playerInstance);
 	}
 
 	private void OnPeerDisconnected(long id)
 	{
 		GetNode($"/root/Main/EntityArray/{id}").QueueFree();
 		GD.Print($"Peer {id} disconnected");
+		Entities.Remove((int)id);
 	}
 
 	// Starts the server
